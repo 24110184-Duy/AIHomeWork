@@ -8,17 +8,18 @@ import time
 # =====================================================
 # COLORS (modern dark theme)
 # =====================================================
-BG = "#0f172a"          # dark slate
-FRAME = "#1e293b"       # lighter slate
-BTN = "#3b82f6"         # bright blue
+BG = "#0f172a"
+FRAME = "#1e293b"
+BTN = "#3b82f6"
 BTN_HOVER = "#2563eb"
 TEXT = "#f8fafc"
-EMPTY = "#334155"        # empty cell
-TILE = "#38bdf8"         # cyan tile
+EMPTY = "#334155"
+TILE = "#38bdf8"
 TILE_NUM = "#0f172a"
-ACCENT = "#f59e0b"       # amber accent
+ACCENT = "#f59e0b"
 LOG_BG = "#0f172a"
 LOG_FG = "#a5f3fc"
+BTN_IDS = "#10b981"
 
 # =====================================================
 # DEFAULT GOAL
@@ -69,7 +70,7 @@ def generate_random_state(goal):
             return state
 
 # =====================================================
-# BFS & DFS (unchanged)
+# BFS
 # =====================================================
 def bfs(start, goal):
     queue = deque([start])
@@ -97,6 +98,9 @@ def bfs(start, goal):
                 queue.append(nxt)
     return None, None
 
+# =====================================================
+# DFS
+# =====================================================
 def dfs(start, goal, limit=35):
     stack = [(start, 0)]
     visited = set()
@@ -128,13 +132,51 @@ def dfs(start, goal, limit=35):
     return None, None
 
 # =====================================================
-# GUI (enhanced)
+# IDS (Iterative Deepening Search)
+# =====================================================
+def ids(start, goal, max_depth=50):
+    """
+    Iterative Deepening Search.
+    Tăng dần giới hạn độ sâu từ 0 đến max_depth.
+    Đảm bảo tìm được đường đi ngắn nhất như BFS nhưng tiết kiệm bộ nhớ như DFS.
+    """
+    def dls(state, limit, current_path, current_moves):
+        """Depth-Limited Search đệ quy, trả về (path_states, path_moves) nếu tìm thấy."""
+        if state == goal:
+            return list(current_path), list(current_moves)
+        if limit == 0:
+            return None
+        for nxt, move in get_neighbors(state):
+            if nxt not in path_set:
+                path_set.add(nxt)
+                current_path.append(nxt)
+                current_moves.append(move)
+                result = dls(nxt, limit - 1, current_path, current_moves)
+                if result is not None:
+                    return result
+                # Backtrack
+                current_path.pop()
+                current_moves.pop()
+                path_set.discard(nxt)
+        return None
+
+    for depth_limit in range(max_depth + 1):
+        path_set = {start}
+        result = dls(start, depth_limit, [start], [])
+        if result is not None:
+            states, moves = result
+            return moves, states, depth_limit
+
+    return None, None, None
+
+# =====================================================
+# GUI
 # =====================================================
 class PuzzleGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("8 Puzzle Visual Solver")
-        self.root.geometry("1200x800")
+        self.root.geometry("1200x820")
         self.root.configure(bg=BG)
         self.running = False
         self.animating = False
@@ -195,18 +237,25 @@ class PuzzleGUI:
                 row.append(e)
             self.goal_entries.append(row)
 
-        # Control buttons
+        # Control buttons — 3 algo + reset + stop
         ctrl_frame = tk.Frame(left, bg=FRAME)
         ctrl_frame.pack(pady=15)
 
         tk.Button(ctrl_frame, text="🚀 Solve BFS", font=("Segoe UI", 12, "bold"),
-                  bg=BTN, fg="white", width=12, command=self.solve_bfs).grid(row=0, column=0, padx=5)
+                  bg=BTN, fg="white", width=13,
+                  command=self.solve_bfs).grid(row=0, column=0, padx=5, pady=4)
         tk.Button(ctrl_frame, text="⚡ Solve DFS", font=("Segoe UI", 12, "bold"),
-                  bg=BTN, fg="white", width=12, command=self.solve_dfs).grid(row=0, column=1, padx=5)
+                  bg=BTN, fg="white", width=13,
+                  command=self.solve_dfs).grid(row=0, column=1, padx=5, pady=4)
+        tk.Button(ctrl_frame, text="🔁 Solve IDS", font=("Segoe UI", 12, "bold"),
+                  bg=BTN_IDS, fg="white", width=13,
+                  command=self.solve_ids).grid(row=1, column=0, padx=5, pady=4)
         tk.Button(ctrl_frame, text="🔄 Reset", font=("Segoe UI", 12, "bold"),
-                  bg="#ef4444", fg="white", width=12, command=self.reset).grid(row=0, column=2, padx=5)
+                  bg="#ef4444", fg="white", width=13,
+                  command=self.reset).grid(row=1, column=1, padx=5, pady=4)
         tk.Button(ctrl_frame, text="⏹️ Stop", font=("Segoe UI", 12, "bold"),
-                  bg="#f97316", fg="white", width=12, command=self.stop_animation).grid(row=0, column=3, padx=5)
+                  bg="#f97316", fg="white", width=28,
+                  command=self.stop_animation).grid(row=2, column=0, columnspan=2, pady=4)
 
         # Right panel - Visualization
         right = tk.Frame(main, bg=FRAME, relief="ridge", bd=2)
@@ -261,9 +310,8 @@ class PuzzleGUI:
         self.log.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        btn_clear_log = tk.Button(right, text="🗑️ Clear Log", font=("Segoe UI", 10),
-                                  bg="#475569", fg="white", command=self.clear_log)
-        btn_clear_log.pack(pady=5)
+        tk.Button(right, text="🗑️ Clear Log", font=("Segoe UI", 10),
+                  bg="#475569", fg="white", command=self.clear_log).pack(pady=5)
 
     # =====================================================
     # Helper methods
@@ -323,17 +371,25 @@ class PuzzleGUI:
                     self.start_entries[i][j].insert(0, str(val))
                 idx += 1
 
-    def animate(self, path, states, algo, solve_time):
+    def animate(self, path, states, algo, solve_time, extra_info=""):
         self.animating = True
         self.stop_animation_flag = False
         self.clear_log()
 
         self.write_log(f"========== {algo} ==========")
         self.write_log(f"Solution steps : {len(path)}")
-        self.write_log(f"Move sequence  : {' '.join(path)}")
+        if path and algo != "IDS":
+            self.write_log(f"Move sequence  : {' '.join(path)}")
+        elif path and algo == "IDS":
+            self.write_log(f"Move sequence  : {' '.join(path)}")
         self.write_log(f"Solving time   : {solve_time:.4f} sec")
+        if extra_info:
+            self.write_log(extra_info)
         self.write_log("")
-        self.stats_label.config(text=f"Steps: {len(path)} | Moves: {len(path)} | Time: {solve_time:.2f}s")
+        extra_str = f" | {extra_info}" if extra_info else ""
+        self.stats_label.config(
+            text=f"Steps: {len(path)} | Time: {solve_time:.2f}s{extra_str}"
+        )
 
         for step, state in enumerate(states):
             if self.stop_animation_flag:
@@ -347,12 +403,10 @@ class PuzzleGUI:
         self.status.config(text=f"✅ {algo} COMPLETED", fg="#4ade80")
         self.animating = False
 
-    def solve_common(self, algo, solver_func, **kwargs):
-        if self.animating:
-            messagebox.showwarning("Busy", "Please wait, animation in progress")
-            return
+    def _run_solver(self, algo, solver_func, **kwargs):
+        """Chạy solver trong thread riêng rồi gọi animate trên main thread."""
         start = self.read_state(self.start_entries)
-        goal = self.read_state(self.goal_entries)
+        goal  = self.read_state(self.goal_entries)
         if not start or not goal:
             return
         if not is_solvable(start, goal):
@@ -363,38 +417,60 @@ class PuzzleGUI:
         self.root.update()
 
         def run():
-            start_time = time.time()
-            path, states = solver_func(start, goal, **kwargs)
-            solve_time = time.time() - start_time
+            t0 = time.time()
+            raw = solver_func(start, goal, **kwargs)
+            elapsed = time.time() - t0
+
+            # IDS trả về 3 giá trị, BFS/DFS trả về 2
+            if algo == "IDS":
+                path, states, depth_limit = raw
+                extra = f"Depth limit: {depth_limit}" if depth_limit is not None else ""
+            else:
+                path, states = raw
+                extra = ""
+
             if path is None:
-                self.root.after(0, lambda: messagebox.showinfo("Result", f"{algo} found no solution (depth limit?)"))
-                self.root.after(0, lambda: self.status.config(text="❌ No solution", fg="#ef4444"))
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Result", f"{algo}: không tìm được lời giải!"))
+                self.root.after(0, lambda: self.status.config(
+                    text="❌ No solution", fg="#ef4444"))
                 return
-            self.root.after(0, lambda: self.animate(path, states, algo, solve_time))
+
+            self.root.after(0, lambda: self.animate(path, states, algo, elapsed, extra))
 
         threading.Thread(target=run, daemon=True).start()
 
     def solve_bfs(self):
-        self.solve_common("BFS", bfs)
+        if self.animating:
+            messagebox.showwarning("Busy", "Đợi animation kết thúc!")
+            return
+        self._run_solver("BFS", bfs)
 
     def solve_dfs(self):
-        self.solve_common("DFS", dfs, limit=35)
+        if self.animating:
+            messagebox.showwarning("Busy", "Đợi animation kết thúc!")
+            return
+        self._run_solver("DFS", dfs, limit=35)
+
+    def solve_ids(self):
+        if self.animating:
+            messagebox.showwarning("Busy", "Đợi animation kết thúc!")
+            return
+        self._run_solver("IDS", ids, max_depth=50)
 
     def reset(self):
         if self.animating:
             self.stop_animation()
-        # Clear start entries but keep goal as is
         for i in range(3):
             for j in range(3):
                 self.start_entries[i][j].delete(0, tk.END)
-        # Clear board display
         for i in range(3):
             for j in range(3):
                 self.cells[i][j].config(text="", bg=TILE)
         self.status.config(text="🔄 Reset", fg="#4ade80")
         self.stats_label.config(text="")
         self.clear_log()
-        self.write_log("Reset complete. Enter a new start state or click Random Start.")
+        self.write_log("Reset complete. Nhập start state hoặc bấm Random Start.")
 
 
 # =====================================================
