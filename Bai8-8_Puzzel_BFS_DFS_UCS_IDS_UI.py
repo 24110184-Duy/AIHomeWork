@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from collections import deque
+import heapq
 import random
 import threading
 import time
@@ -20,6 +21,7 @@ ACCENT = "#f59e0b"
 LOG_BG = "#0f172a"
 LOG_FG = "#a5f3fc"
 BTN_IDS = "#10b981"
+BTN_UCS = "#a855f7"
 
 # =====================================================
 # DEFAULT GOAL
@@ -135,13 +137,7 @@ def dfs(start, goal, limit=35):
 # IDS (Iterative Deepening Search)
 # =====================================================
 def ids(start, goal, max_depth=50):
-    """
-    Iterative Deepening Search.
-    Tăng dần giới hạn độ sâu từ 0 đến max_depth.
-    Đảm bảo tìm được đường đi ngắn nhất như BFS nhưng tiết kiệm bộ nhớ như DFS.
-    """
     def dls(state, limit, current_path, current_moves):
-        """Depth-Limited Search đệ quy, trả về (path_states, path_moves) nếu tìm thấy."""
         if state == goal:
             return list(current_path), list(current_moves)
         if limit == 0:
@@ -154,7 +150,6 @@ def ids(start, goal, max_depth=50):
                 result = dls(nxt, limit - 1, current_path, current_moves)
                 if result is not None:
                     return result
-                # Backtrack
                 current_path.pop()
                 current_moves.pop()
                 path_set.discard(nxt)
@@ -170,139 +165,209 @@ def ids(start, goal, max_depth=50):
     return None, None, None
 
 # =====================================================
+# UCS (Uniform Cost Search)
+# =====================================================
+def ucs(start, goal):
+    """
+    Uniform Cost Search.
+    Mỗi bước di chuyển có chi phí bằng 1.
+    Kết quả tương đương BFS với đồ thị đồng chi phí, nhưng cấu trúc
+    sử dụng priority queue (heap) để minh hoạ UCS đúng cách.
+    Trả về (path_moves, path_states, total_cost).
+    """
+    # heap: (cost, tie_breaker, state)
+    counter = 0
+    heap = [(0, counter, start)]
+    visited = {}          # state -> cost
+    parent = {}           # state -> parent_state
+    move_taken = {}       # state -> move
+    cost_map = {start: 0}
+
+    while heap:
+        cost, _, state = heapq.heappop(heap)
+
+        # Nếu đã xét với chi phí thấp hơn thì bỏ qua
+        if state in visited:
+            continue
+        visited[state] = cost
+
+        if state == goal:
+            # Truy vết đường đi
+            path_moves, path_states = [], []
+            cur = goal
+            while cur != start:
+                path_states.append(cur)
+                path_moves.append(move_taken[cur])
+                cur = parent[cur]
+            path_states.append(start)
+            path_states.reverse()
+            path_moves.reverse()
+            return path_moves, path_states, cost
+
+        for nxt, move in get_neighbors(state):
+            new_cost = cost + 1          # uniform cost = 1 per move
+            if nxt not in visited and (nxt not in cost_map or new_cost < cost_map[nxt]):
+                cost_map[nxt] = new_cost
+                parent[nxt] = state
+                move_taken[nxt] = move
+                counter += 1
+                heapq.heappush(heap, (new_cost, counter, nxt))
+
+    return None, None, None
+
+# =====================================================
 # GUI
 # =====================================================
 class PuzzleGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("8 Puzzle Visual Solver")
-        self.root.geometry("1200x820")
         self.root.configure(bg=BG)
         self.running = False
         self.animating = False
         self.stop_animation_flag = False
 
-        # Title
+        # ── Title ────────────────────────────────────
         tk.Label(root, text="8 PUZZLE VISUAL SOLVER",
-                 font=("Segoe UI", 32, "bold"), bg=BG, fg=ACCENT).pack(pady=15)
+                 font=("Segoe UI", 26, "bold"), bg=BG, fg=ACCENT).pack(pady=(12, 4))
 
-        # Main container
-        main = tk.Frame(root, bg=FRAME)
-        main.pack(fill="both", expand=True, padx=20, pady=10)
+        # ── Main container ───────────────────────────
+        main = tk.Frame(root, bg=BG)
+        main.pack(fill="both", expand=True, padx=16, pady=6)
 
-        # Left panel - Input
+        # ── LEFT PANEL ───────────────────────────────
         left = tk.Frame(main, bg=FRAME, relief="ridge", bd=2)
-        left.pack(side="left", fill="both", padx=15, pady=10)
+        left.pack(side="left", fill="y", padx=(0, 10), pady=4)
 
-        # Start state frame
-        start_frame = tk.LabelFrame(left, text="START STATE", font=("Segoe UI", 14, "bold"),
+        # Start state
+        start_frame = tk.LabelFrame(left, text=" START STATE ", font=("Segoe UI", 11, "bold"),
                                     bg=FRAME, fg=TEXT, bd=2, relief="groove")
-        start_frame.pack(pady=10, padx=10, fill="x")
+        start_frame.pack(pady=(10, 4), padx=10, fill="x")
 
         self.start_entries = []
         sf_grid = tk.Frame(start_frame, bg=FRAME)
-        sf_grid.pack(pady=10)
+        sf_grid.pack(pady=6)
         for i in range(3):
             row = []
             for j in range(3):
-                e = tk.Entry(sf_grid, width=3, font=("Segoe UI", 28, "bold"),
+                e = tk.Entry(sf_grid, width=3, font=("Segoe UI", 22, "bold"),
                              justify="center", bd=2, relief="solid")
-                e.grid(row=i, column=j, padx=5, pady=5)
+                e.grid(row=i, column=j, padx=4, pady=4)
                 row.append(e)
             self.start_entries.append(row)
 
-        tk.Button(left, text="🎲 Random Start", font=("Segoe UI", 12, "bold"),
+        tk.Button(left, text="🎲  Random Start", font=("Segoe UI", 11, "bold"),
                   bg=BTN, fg="white", activebackground=BTN_HOVER,
-                  cursor="hand2", command=self.random_start).pack(pady=5)
+                  cursor="hand2", command=self.random_start).pack(pady=(4, 8), padx=10, fill="x")
 
-        # Goal state frame
-        goal_frame = tk.LabelFrame(left, text="GOAL STATE", font=("Segoe UI", 14, "bold"),
+        # Goal state
+        goal_frame = tk.LabelFrame(left, text=" GOAL STATE ", font=("Segoe UI", 11, "bold"),
                                    bg=FRAME, fg=TEXT, bd=2, relief="groove")
-        goal_frame.pack(pady=10, padx=10, fill="x")
+        goal_frame.pack(pady=4, padx=10, fill="x")
 
         self.goal_entries = []
         gf_grid = tk.Frame(goal_frame, bg=FRAME)
-        gf_grid.pack(pady=10)
+        gf_grid.pack(pady=6)
         idx = 0
         for i in range(3):
             row = []
             for j in range(3):
-                e = tk.Entry(gf_grid, width=3, font=("Segoe UI", 28, "bold"),
+                e = tk.Entry(gf_grid, width=3, font=("Segoe UI", 22, "bold"),
                              justify="center", bd=2, relief="solid")
                 val = DEFAULT_GOAL[idx]
                 if val != 0:
                     e.insert(0, str(val))
                 idx += 1
-                e.grid(row=i, column=j, padx=5, pady=5)
+                e.grid(row=i, column=j, padx=4, pady=4)
                 row.append(e)
             self.goal_entries.append(row)
 
-        # Control buttons — 3 algo + reset + stop
-        ctrl_frame = tk.Frame(left, bg=FRAME)
-        ctrl_frame.pack(pady=15)
+        # ── Algorithm buttons ─────────────────────────
+        algo_frame = tk.LabelFrame(left, text=" ALGORITHMS ", font=("Segoe UI", 11, "bold"),
+                                   bg=FRAME, fg=TEXT, bd=2, relief="groove")
+        algo_frame.pack(pady=(10, 4), padx=10, fill="x")
 
-        tk.Button(ctrl_frame, text="🚀 Solve BFS", font=("Segoe UI", 12, "bold"),
-                  bg=BTN, fg="white", width=13,
-                  command=self.solve_bfs).grid(row=0, column=0, padx=5, pady=4)
-        tk.Button(ctrl_frame, text="⚡ Solve DFS", font=("Segoe UI", 12, "bold"),
-                  bg=BTN, fg="white", width=13,
-                  command=self.solve_dfs).grid(row=0, column=1, padx=5, pady=4)
-        tk.Button(ctrl_frame, text="🔁 Solve IDS", font=("Segoe UI", 12, "bold"),
-                  bg=BTN_IDS, fg="white", width=13,
-                  command=self.solve_ids).grid(row=1, column=0, padx=5, pady=4)
-        tk.Button(ctrl_frame, text="🔄 Reset", font=("Segoe UI", 12, "bold"),
-                  bg="#ef4444", fg="white", width=13,
-                  command=self.reset).grid(row=1, column=1, padx=5, pady=4)
-        tk.Button(ctrl_frame, text="⏹️ Stop", font=("Segoe UI", 12, "bold"),
-                  bg="#f97316", fg="white", width=28,
-                  command=self.stop_animation).grid(row=2, column=0, columnspan=2, pady=4)
+        btn_cfg = dict(font=("Segoe UI", 11, "bold"), fg="white", cursor="hand2",
+                       relief="flat", padx=6, pady=6)
 
-        # Right panel - Visualization
+        # Row 0: BFS | DFS
+        r0 = tk.Frame(algo_frame, bg=FRAME)
+        r0.pack(fill="x", padx=6, pady=(6, 2))
+        tk.Button(r0, text="🚀 BFS", bg=BTN, activebackground=BTN_HOVER,
+                  command=self.solve_bfs, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(0,3))
+        tk.Button(r0, text="⚡ DFS", bg="#0ea5e9", activebackground="#0284c7",
+                  command=self.solve_dfs, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(3,0))
+
+        # Row 1: IDS | UCS
+        r1 = tk.Frame(algo_frame, bg=FRAME)
+        r1.pack(fill="x", padx=6, pady=(2, 6))
+        tk.Button(r1, text="🔁 IDS", bg=BTN_IDS, activebackground="#059669",
+                  command=self.solve_ids, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(0,3))
+        tk.Button(r1, text="💜 UCS", bg=BTN_UCS, activebackground="#9333ea",
+                  command=self.solve_ucs, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(3,0))
+
+        # ── Control buttons ───────────────────────────
+        ctrl_frame = tk.LabelFrame(left, text=" CONTROLS ", font=("Segoe UI", 11, "bold"),
+                                   bg=FRAME, fg=TEXT, bd=2, relief="groove")
+        ctrl_frame.pack(pady=(4, 10), padx=10, fill="x")
+
+        r2 = tk.Frame(ctrl_frame, bg=FRAME)
+        r2.pack(fill="x", padx=6, pady=6)
+        tk.Button(r2, text="🔄 Reset", font=("Segoe UI", 11, "bold"), fg="white",
+                  bg="#ef4444", activebackground="#dc2626", cursor="hand2",
+                  relief="flat", padx=6, pady=6,
+                  command=self.reset).pack(side="left", expand=True, fill="x", padx=(0,3))
+        tk.Button(r2, text="⏹️ Stop", font=("Segoe UI", 11, "bold"), fg="white",
+                  bg="#f97316", activebackground="#ea580c", cursor="hand2",
+                  relief="flat", padx=6, pady=6,
+                  command=self.stop_animation).pack(side="left", expand=True, fill="x", padx=(3,0))
+
+        # ── RIGHT PANEL ───────────────────────────────
         right = tk.Frame(main, bg=FRAME, relief="ridge", bd=2)
-        right.pack(side="right", fill="both", expand=True, padx=15, pady=10)
+        right.pack(side="right", fill="both", expand=True, pady=4)
 
         # Board display
-        board_frame = tk.Frame(right, bg=FRAME)
-        board_frame.pack(pady=15)
+        board_outer = tk.Frame(right, bg=FRAME)
+        board_outer.pack(pady=(14, 6))
 
         self.cells = []
         for i in range(3):
             row = []
             for j in range(3):
-                lbl = tk.Label(board_frame, text="", width=4, height=2,
-                               font=("Segoe UI", 36, "bold"), bg=TILE,
+                lbl = tk.Label(board_outer, text="", width=4, height=2,
+                               font=("Segoe UI", 34, "bold"), bg=TILE,
                                fg=TILE_NUM, relief="raised", bd=3)
-                lbl.grid(row=i, column=j, padx=8, pady=8)
+                lbl.grid(row=i, column=j, padx=7, pady=7)
                 row.append(lbl)
             self.cells.append(row)
 
         # Speed control
         speed_frame = tk.Frame(right, bg=FRAME)
-        speed_frame.pack(fill="x", pady=5)
-        tk.Label(speed_frame, text="Animation Speed:", font=("Segoe UI", 11),
-                 bg=FRAME, fg=TEXT).pack(side="left", padx=5)
+        speed_frame.pack(fill="x", padx=14, pady=4)
+        tk.Label(speed_frame, text="⏱ Speed:", font=("Segoe UI", 10),
+                 bg=FRAME, fg=TEXT).pack(side="left", padx=(0, 4))
         self.speed_var = tk.DoubleVar(value=0.4)
-        speed_scale = tk.Scale(speed_frame, from_=0.1, to=1.2, resolution=0.05,
-                               orient="horizontal", variable=self.speed_var,
-                               bg=FRAME, fg=TEXT, length=200)
-        speed_scale.pack(side="left", padx=5)
-        tk.Label(speed_frame, text="sec/step", font=("Segoe UI", 10),
-                 bg=FRAME, fg=TEXT).pack(side="left")
+        tk.Scale(speed_frame, from_=0.1, to=1.5, resolution=0.05,
+                 orient="horizontal", variable=self.speed_var,
+                 bg=FRAME, fg=TEXT, highlightthickness=0,
+                 length=180).pack(side="left")
+        tk.Label(speed_frame, text="sec/step", font=("Segoe UI", 9),
+                 bg=FRAME, fg="#94a3b8").pack(side="left", padx=4)
 
         # Status & stats
-        self.status = tk.Label(right, text="✅ READY", font=("Segoe UI", 13, "bold"),
-                               bg=FRAME, fg="#4ade80")
-        self.status.pack(pady=5)
+        self.status = tk.Label(right, text="✅ READY",
+                               font=("Segoe UI", 12, "bold"), bg=FRAME, fg="#4ade80")
+        self.status.pack(pady=(4, 0))
 
-        self.stats_label = tk.Label(right, text="", font=("Segoe UI", 10),
-                                    bg=FRAME, fg=ACCENT)
+        self.stats_label = tk.Label(right, text="",
+                                    font=("Segoe UI", 10), bg=FRAME, fg=ACCENT)
         self.stats_label.pack()
 
-        # Log area with scrollbar
+        # Log area
         log_frame = tk.Frame(right, bg=FRAME)
-        log_frame.pack(fill="both", expand=True, pady=10, padx=10)
+        log_frame.pack(fill="both", expand=True, pady=(6, 2), padx=12)
 
-        self.log = tk.Text(log_frame, width=50, height=14,
+        self.log = tk.Text(log_frame, width=48, height=12,
                            font=("Consolas", 10), bg=LOG_BG, fg=LOG_FG,
                            wrap="word", bd=2, relief="sunken")
         scrollbar = tk.Scrollbar(log_frame, orient="vertical", command=self.log.yview)
@@ -310,8 +375,13 @@ class PuzzleGUI:
         self.log.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        tk.Button(right, text="🗑️ Clear Log", font=("Segoe UI", 10),
-                  bg="#475569", fg="white", command=self.clear_log).pack(pady=5)
+        tk.Button(right, text="🗑️ Clear Log", font=("Segoe UI", 9),
+                  bg="#475569", fg="white", cursor="hand2",
+                  command=self.clear_log).pack(pady=(2, 10))
+
+        # Auto-fit window after all widgets placed
+        root.update_idletasks()
+        root.minsize(root.winfo_width(), root.winfo_height())
 
     # =====================================================
     # Helper methods
@@ -324,7 +394,7 @@ class PuzzleGUI:
                     txt = entries[i][j].get().strip()
                     val = 0 if txt == "" else int(txt)
                     nums.append(val)
-        except:
+        except Exception:
             messagebox.showerror("Error", "Input must be numbers (0-8)")
             return None
         if sorted(nums) != list(range(9)):
@@ -378,17 +448,15 @@ class PuzzleGUI:
 
         self.write_log(f"========== {algo} ==========")
         self.write_log(f"Solution steps : {len(path)}")
-        if path and algo != "IDS":
-            self.write_log(f"Move sequence  : {' '.join(path)}")
-        elif path and algo == "IDS":
-            self.write_log(f"Move sequence  : {' '.join(path)}")
+        self.write_log(f"Move sequence  : {' '.join(path)}")
         self.write_log(f"Solving time   : {solve_time:.4f} sec")
         if extra_info:
             self.write_log(extra_info)
         self.write_log("")
+
         extra_str = f" | {extra_info}" if extra_info else ""
         self.stats_label.config(
-            text=f"Steps: {len(path)} | Time: {solve_time:.2f}s{extra_str}"
+            text=f"Steps: {len(path)} | Time: {solve_time:.4f}s{extra_str}"
         )
 
         for step, state in enumerate(states):
@@ -397,14 +465,13 @@ class PuzzleGUI:
                 self.animating = False
                 return
             self.draw_board(state)
-            self.write_log(f"Step {step}: {state[0:3]} {state[3:6]} {state[6:9]}")
+            self.write_log(f"Step {step:>3}: {state[0:3]}  {state[3:6]}  {state[6:9]}")
             time.sleep(self.speed_var.get())
 
         self.status.config(text=f"✅ {algo} COMPLETED", fg="#4ade80")
         self.animating = False
 
     def _run_solver(self, algo, solver_func, **kwargs):
-        """Chạy solver trong thread riêng rồi gọi animate trên main thread."""
         start = self.read_state(self.start_entries)
         goal  = self.read_state(self.goal_entries)
         if not start or not goal:
@@ -421,17 +488,19 @@ class PuzzleGUI:
             raw = solver_func(start, goal, **kwargs)
             elapsed = time.time() - t0
 
-            # IDS trả về 3 giá trị, BFS/DFS trả về 2
             if algo == "IDS":
                 path, states, depth_limit = raw
-                extra = f"Depth limit: {depth_limit}" if depth_limit is not None else ""
+                extra = f"Depth limit reached: {depth_limit}" if depth_limit is not None else ""
+            elif algo == "UCS":
+                path, states, total_cost = raw
+                extra = f"Total cost: {total_cost}" if total_cost is not None else ""
             else:
                 path, states = raw
                 extra = ""
 
             if path is None:
                 self.root.after(0, lambda: messagebox.showinfo(
-                    "Result", f"{algo}: không tìm được lời giải!"))
+                    "Result", f"{algo}: Không tìm được lời giải!"))
                 self.root.after(0, lambda: self.status.config(
                     text="❌ No solution", fg="#ef4444"))
                 return
@@ -440,23 +509,28 @@ class PuzzleGUI:
 
         threading.Thread(target=run, daemon=True).start()
 
-    def solve_bfs(self):
+    # ── Solver buttons ────────────────────────────────
+    def _check_busy(self):
         if self.animating:
-            messagebox.showwarning("Busy", "Đợi animation kết thúc!")
-            return
+            messagebox.showwarning("Busy", "Đợi animation kết thúc trước!")
+            return True
+        return False
+
+    def solve_bfs(self):
+        if self._check_busy(): return
         self._run_solver("BFS", bfs)
 
     def solve_dfs(self):
-        if self.animating:
-            messagebox.showwarning("Busy", "Đợi animation kết thúc!")
-            return
+        if self._check_busy(): return
         self._run_solver("DFS", dfs, limit=35)
 
     def solve_ids(self):
-        if self.animating:
-            messagebox.showwarning("Busy", "Đợi animation kết thúc!")
-            return
+        if self._check_busy(): return
         self._run_solver("IDS", ids, max_depth=50)
+
+    def solve_ucs(self):
+        if self._check_busy(): return
+        self._run_solver("UCS", ucs)
 
     def reset(self):
         if self.animating:
@@ -470,7 +544,7 @@ class PuzzleGUI:
         self.status.config(text="🔄 Reset", fg="#4ade80")
         self.stats_label.config(text="")
         self.clear_log()
-        self.write_log("Reset complete. Nhập start state hoặc bấm Random Start.")
+        self.write_log("Reset xong. Nhập start state hoặc bấm Random Start.")
 
 
 # =====================================================
