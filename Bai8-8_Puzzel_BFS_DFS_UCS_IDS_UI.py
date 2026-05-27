@@ -22,6 +22,8 @@ LOG_BG = "#0f172a"
 LOG_FG = "#a5f3fc"
 BTN_IDS = "#10b981"
 BTN_UCS = "#a855f7"
+BTN_GREEDY = "#ec4899"  # pink
+BTN_ASTAR = "#f97316"  # orange
 
 # =====================================================
 # DEFAULT GOAL
@@ -32,6 +34,7 @@ DEFAULT_GOAL = (
     7, 6, 5
 )
 
+
 # =====================================================
 # GET NEIGHBORS
 # =====================================================
@@ -39,7 +42,7 @@ def get_neighbors(state):
     neighbors = []
     zero = state.index(0)
     row, col = divmod(zero, 3)
-    for dr, dc, move in ((-1,0,'U'), (1,0,'D'), (0,-1,'L'), (0,1,'R')):
+    for dr, dc, move in ((-1, 0, 'U'), (1, 0, 'D'), (0, -1, 'L'), (0, 1, 'R')):
         nr, nc = row + dr, col + dc
         if 0 <= nr < 3 and 0 <= nc < 3:
             nxt = nr * 3 + nc
@@ -48,6 +51,27 @@ def get_neighbors(state):
             neighbors.append((tuple(temp), move))
     return neighbors
 
+
+# =====================================================
+# HEURISTICS
+# =====================================================
+def manhattan_distance(state, goal):
+    """Tổng khoảng cách Manhattan của mỗi ô đến vị trí đích."""
+    goal_pos = {goal[i]: divmod(i, 3) for i in range(9)}
+    dist = 0
+    for i, val in enumerate(state):
+        if val != 0:
+            r, c = divmod(i, 3)
+            gr, gc = goal_pos[val]
+            dist += abs(r - gr) + abs(c - gc)
+    return dist
+
+
+def misplaced_tiles(state, goal):
+    """Số ô không đúng vị trí (không tính ô trống)."""
+    return sum(1 for i in range(9) if state[i] != goal[i] and state[i] != 0)
+
+
 # =====================================================
 # INVERSION COUNT
 # =====================================================
@@ -55,13 +79,15 @@ def inversion_count(state):
     arr = [x for x in state if x != 0]
     inv = 0
     for i in range(len(arr)):
-        for j in range(i+1, len(arr)):
+        for j in range(i + 1, len(arr)):
             if arr[i] > arr[j]:
                 inv += 1
     return inv
 
+
 def is_solvable(start, goal):
     return (inversion_count(start) % 2) == (inversion_count(goal) % 2)
+
 
 def generate_random_state(goal):
     nums = list(range(9))
@@ -70,6 +96,7 @@ def generate_random_state(goal):
         state = tuple(nums)
         if is_solvable(state, goal):
             return state
+
 
 # =====================================================
 # BFS
@@ -99,6 +126,7 @@ def bfs(start, goal):
                 move_taken[nxt] = move
                 queue.append(nxt)
     return None, None
+
 
 # =====================================================
 # DFS
@@ -130,8 +158,9 @@ def dfs(start, goal, limit=35):
             if nxt not in visited:
                 parent[nxt] = state
                 move_taken[nxt] = move
-                stack.append((nxt, depth+1))
+                stack.append((nxt, depth + 1))
     return None, None
+
 
 # =====================================================
 # IDS (Iterative Deepening Search)
@@ -164,35 +193,24 @@ def ids(start, goal, max_depth=50):
 
     return None, None, None
 
+
 # =====================================================
 # UCS (Uniform Cost Search)
 # =====================================================
 def ucs(start, goal):
-    """
-    Uniform Cost Search.
-    Mỗi bước di chuyển có chi phí bằng 1.
-    Kết quả tương đương BFS với đồ thị đồng chi phí, nhưng cấu trúc
-    sử dụng priority queue (heap) để minh hoạ UCS đúng cách.
-    Trả về (path_moves, path_states, total_cost).
-    """
-    # heap: (cost, tie_breaker, state)
     counter = 0
     heap = [(0, counter, start)]
-    visited = {}          # state -> cost
-    parent = {}           # state -> parent_state
-    move_taken = {}       # state -> move
+    visited = {}
+    parent = {}
+    move_taken = {}
     cost_map = {start: 0}
 
     while heap:
         cost, _, state = heapq.heappop(heap)
-
-        # Nếu đã xét với chi phí thấp hơn thì bỏ qua
         if state in visited:
             continue
         visited[state] = cost
-
         if state == goal:
-            # Truy vết đường đi
             path_moves, path_states = [], []
             cur = goal
             while cur != start:
@@ -205,7 +223,7 @@ def ucs(start, goal):
             return path_moves, path_states, cost
 
         for nxt, move in get_neighbors(state):
-            new_cost = cost + 1          # uniform cost = 1 per move
+            new_cost = cost + 1
             if nxt not in visited and (nxt not in cost_map or new_cost < cost_map[nxt]):
                 cost_map[nxt] = new_cost
                 parent[nxt] = state
@@ -214,6 +232,111 @@ def ucs(start, goal):
                 heapq.heappush(heap, (new_cost, counter, nxt))
 
     return None, None, None
+
+
+# =====================================================
+# GREEDY BEST-FIRST SEARCH
+# =====================================================
+def greedy(start, goal, heuristic="manhattan"):
+    """
+    Greedy Best-First Search: chỉ dùng heuristic h(n), không tính g(n).
+    Nhanh nhưng không đảm bảo tìm đường ngắn nhất.
+    """
+    h_func = manhattan_distance if heuristic == "manhattan" else misplaced_tiles
+
+    counter = 0
+    h0 = h_func(start, goal)
+    heap = [(h0, counter, start)]
+    visited = set()
+    parent = {}
+    move_taken = {}
+
+    nodes_expanded = 0
+
+    while heap:
+        h, _, state = heapq.heappop(heap)
+        if state in visited:
+            continue
+        visited.add(state)
+        nodes_expanded += 1
+
+        if state == goal:
+            path_moves, path_states = [], []
+            cur = goal
+            while cur != start:
+                path_states.append(cur)
+                path_moves.append(move_taken[cur])
+                cur = parent[cur]
+            path_states.append(start)
+            path_states.reverse()
+            path_moves.reverse()
+            return path_moves, path_states, nodes_expanded
+
+        for nxt, move in get_neighbors(state):
+            if nxt not in visited:
+                parent[nxt] = state
+                move_taken[nxt] = move
+                counter += 1
+                heapq.heappush(heap, (h_func(nxt, goal), counter, nxt))
+
+    return None, None, nodes_expanded
+
+
+# =====================================================
+# A* SEARCH
+# =====================================================
+def astar(start, goal, heuristic="manhattan"):
+    """
+    A* Search: f(n) = g(n) + h(n).
+    Tối ưu và đầy đủ khi heuristic là admissible.
+    Manhattan distance là admissible cho 8-puzzle.
+    """
+    h_func = manhattan_distance if heuristic == "manhattan" else misplaced_tiles
+
+    counter = 0
+    g0 = 0
+    h0 = h_func(start, goal)
+    heap = [(g0 + h0, counter, start)]
+    visited = {}  # state -> best g
+    parent = {}
+    move_taken = {}
+    g_map = {start: 0}
+
+    nodes_expanded = 0
+
+    while heap:
+        f, _, state = heapq.heappop(heap)
+        g = g_map.get(state, float('inf'))
+
+        if state in visited:
+            continue
+        visited[state] = g
+        nodes_expanded += 1
+
+        if state == goal:
+            path_moves, path_states = [], []
+            cur = goal
+            while cur != start:
+                path_states.append(cur)
+                path_moves.append(move_taken[cur])
+                cur = parent[cur]
+            path_states.append(start)
+            path_states.reverse()
+            path_moves.reverse()
+            return path_moves, path_states, nodes_expanded, g
+
+        for nxt, move in get_neighbors(state):
+            new_g = g + 1
+            if nxt not in visited and (nxt not in g_map or new_g < g_map[nxt]):
+                g_map[nxt] = new_g
+                parent[nxt] = state
+                move_taken[nxt] = move
+                counter += 1
+                f_new = new_g + h_func(nxt, goal)
+                heapq.heappush(heap, (f_new, counter, nxt))
+
+    return None, None, nodes_expanded, None
+
 
 # =====================================================
 # GUI
@@ -294,33 +417,71 @@ class PuzzleGUI:
         r0 = tk.Frame(algo_frame, bg=FRAME)
         r0.pack(fill="x", padx=6, pady=(6, 2))
         tk.Button(r0, text="🚀 BFS", bg=BTN, activebackground=BTN_HOVER,
-                  command=self.solve_bfs, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(0,3))
+                  command=self.solve_bfs, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(0, 3))
         tk.Button(r0, text="⚡ DFS", bg="#0ea5e9", activebackground="#0284c7",
-                  command=self.solve_dfs, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(3,0))
+                  command=self.solve_dfs, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(3, 0))
 
         # Row 1: IDS | UCS
         r1 = tk.Frame(algo_frame, bg=FRAME)
-        r1.pack(fill="x", padx=6, pady=(2, 6))
+        r1.pack(fill="x", padx=6, pady=(2, 2))
         tk.Button(r1, text="🔁 IDS", bg=BTN_IDS, activebackground="#059669",
-                  command=self.solve_ids, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(0,3))
+                  command=self.solve_ids, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(0, 3))
         tk.Button(r1, text="💜 UCS", bg=BTN_UCS, activebackground="#9333ea",
-                  command=self.solve_ucs, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(3,0))
+                  command=self.solve_ucs, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(3, 0))
+
+        # Row 2: Greedy | A*
+        r2 = tk.Frame(algo_frame, bg=FRAME)
+        r2.pack(fill="x", padx=6, pady=(2, 6))
+        tk.Button(r2, text="🎯 Greedy", bg=BTN_GREEDY, activebackground="#db2777",
+                  command=self.solve_greedy, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(0, 3))
+        tk.Button(r2, text="⭐ A*", bg=BTN_ASTAR, activebackground="#ea580c",
+                  command=self.solve_astar, **btn_cfg).pack(side="left", expand=True, fill="x", padx=(3, 0))
+
+        # ── Heuristic options (for Greedy & A*) ──────
+        heuristic_frame = tk.LabelFrame(left, text=" HEURISTIC (Greedy & A*) ",
+                                        font=("Segoe UI", 10, "bold"),
+                                        bg=FRAME, fg=ACCENT, bd=2, relief="groove")
+        heuristic_frame.pack(pady=(0, 4), padx=10, fill="x")
+
+        self.heuristic_var = tk.StringVar(value="manhattan")
+        h_inner = tk.Frame(heuristic_frame, bg=FRAME)
+        h_inner.pack(pady=4, padx=6, fill="x")
+
+        tk.Radiobutton(h_inner, text="Manhattan Distance",
+                       variable=self.heuristic_var, value="manhattan",
+                       font=("Segoe UI", 10), bg=FRAME, fg=TEXT,
+                       selectcolor=BG, activebackground=FRAME,
+                       activeforeground=ACCENT).pack(anchor="w")
+        tk.Radiobutton(h_inner, text="Misplaced Tiles",
+                       variable=self.heuristic_var, value="misplaced",
+                       font=("Segoe UI", 10), bg=FRAME, fg=TEXT,
+                       selectcolor=BG, activebackground=FRAME,
+                       activeforeground=ACCENT).pack(anchor="w")
+
+        # Heuristic info label
+        self.h_info = tk.Label(heuristic_frame,
+                               text="Manhattan: |Δrow|+|Δcol| cho mỗi ô",
+                               font=("Segoe UI", 9, "italic"),
+                               bg=FRAME, fg="#94a3b8", wraplength=200, justify="left")
+        self.h_info.pack(padx=6, pady=(0, 4))
+
+        self.heuristic_var.trace_add("write", self._update_h_info)
 
         # ── Control buttons ───────────────────────────
         ctrl_frame = tk.LabelFrame(left, text=" CONTROLS ", font=("Segoe UI", 11, "bold"),
                                    bg=FRAME, fg=TEXT, bd=2, relief="groove")
         ctrl_frame.pack(pady=(4, 10), padx=10, fill="x")
 
-        r2 = tk.Frame(ctrl_frame, bg=FRAME)
-        r2.pack(fill="x", padx=6, pady=6)
-        tk.Button(r2, text="🔄 Reset", font=("Segoe UI", 11, "bold"), fg="white",
+        r3 = tk.Frame(ctrl_frame, bg=FRAME)
+        r3.pack(fill="x", padx=6, pady=6)
+        tk.Button(r3, text="🔄 Reset", font=("Segoe UI", 11, "bold"), fg="white",
                   bg="#ef4444", activebackground="#dc2626", cursor="hand2",
                   relief="flat", padx=6, pady=6,
-                  command=self.reset).pack(side="left", expand=True, fill="x", padx=(0,3))
-        tk.Button(r2, text="⏹️ Stop", font=("Segoe UI", 11, "bold"), fg="white",
+                  command=self.reset).pack(side="left", expand=True, fill="x", padx=(0, 3))
+        tk.Button(r3, text="⏹️ Stop", font=("Segoe UI", 11, "bold"), fg="white",
                   bg="#f97316", activebackground="#ea580c", cursor="hand2",
                   relief="flat", padx=6, pady=6,
-                  command=self.stop_animation).pack(side="left", expand=True, fill="x", padx=(3,0))
+                  command=self.stop_animation).pack(side="left", expand=True, fill="x", padx=(3, 0))
 
         # ── RIGHT PANEL ───────────────────────────────
         right = tk.Frame(main, bg=FRAME, relief="ridge", bd=2)
@@ -379,9 +540,17 @@ class PuzzleGUI:
                   bg="#475569", fg="white", cursor="hand2",
                   command=self.clear_log).pack(pady=(2, 10))
 
-        # Auto-fit window after all widgets placed
         root.update_idletasks()
         root.minsize(root.winfo_width(), root.winfo_height())
+
+    # =====================================================
+    # Heuristic info update
+    # =====================================================
+    def _update_h_info(self, *args):
+        if self.heuristic_var.get() == "manhattan":
+            self.h_info.config(text="Manhattan: |Δrow|+|Δcol| cho mỗi ô — admissible, mạnh hơn")
+        else:
+            self.h_info.config(text="Misplaced Tiles: đếm số ô sai vị trí — admissible, yếu hơn")
 
     # =====================================================
     # Helper methods
@@ -473,7 +642,7 @@ class PuzzleGUI:
 
     def _run_solver(self, algo, solver_func, **kwargs):
         start = self.read_state(self.start_entries)
-        goal  = self.read_state(self.goal_entries)
+        goal = self.read_state(self.goal_entries)
         if not start or not goal:
             return
         if not is_solvable(start, goal):
@@ -494,6 +663,12 @@ class PuzzleGUI:
             elif algo == "UCS":
                 path, states, total_cost = raw
                 extra = f"Total cost: {total_cost}" if total_cost is not None else ""
+            elif algo.startswith("Greedy"):
+                path, states, nodes_exp = raw
+                extra = f"Nodes expanded: {nodes_exp}"
+            elif algo.startswith("A*"):
+                path, states, nodes_exp, opt_cost = raw
+                extra = f"Nodes expanded: {nodes_exp} | Optimal cost: {opt_cost}"
             else:
                 path, states = raw
                 extra = ""
@@ -531,6 +706,18 @@ class PuzzleGUI:
     def solve_ucs(self):
         if self._check_busy(): return
         self._run_solver("UCS", ucs)
+
+    def solve_greedy(self):
+        if self._check_busy(): return
+        h = self.heuristic_var.get()
+        label = "Greedy (Manhattan)" if h == "manhattan" else "Greedy (Misplaced)"
+        self._run_solver(label, greedy, heuristic=h)
+
+    def solve_astar(self):
+        if self._check_busy(): return
+        h = self.heuristic_var.get()
+        label = "A* (Manhattan)" if h == "manhattan" else "A* (Misplaced)"
+        self._run_solver(label, astar, heuristic=h)
 
     def reset(self):
         if self.animating:
